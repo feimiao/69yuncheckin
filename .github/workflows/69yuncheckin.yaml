@@ -3,7 +3,7 @@ name: Python CI 2
 on:
   # 每天0点1分触发（UTC时间）
   schedule:
-    - cron: '30 12 * * *'
+    - cron: '31 12 * * *'
 
   # 允许手动触发工作流
   workflow_dispatch:
