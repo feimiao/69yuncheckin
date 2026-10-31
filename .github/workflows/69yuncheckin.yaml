@@ -1,7 +1,7 @@
 name: Python CI 2
 
 on:
-  # 每天0点1分触发（UTC时间）
+  # 每天 UTC 12:31 触发（北京时间 20:31）
   schedule:
     - cron: '31 12 * * *'
 
@@ -26,12 +26,12 @@ jobs:
       # 可以继续扩展更多用户和密码
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.9'
+          python-version: '3.12'
 
       - name: Install dependencies
         run: |
