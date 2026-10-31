@@ -1,5 +1,8 @@
 name: Python CI 2
 
+permissions:
+  contents: write   # keepalive 步骤要用 GITHUB_TOKEN 提交时间戳文件
+
 on:
   # 每天 UTC 12:31 触发（北京时间 20:31）
   schedule:
@@ -40,3 +43,26 @@ jobs:
 
       - name: Run Python script
         run: python 69yun.py  # 执行你的 Python 脚本
+
+      # GitHub 对公开仓库的规则：连续 60 天没有「仓库活动」就会自动禁用 scheduled
+      # workflow，而 workflow 自身每天定时运行并不算活动——这正是本仓库过去反复被停的原因。
+      # 此步在距最近一次提交满 25 天时写一个时间戳文件并提交，把计时器归零。
+      # 用 GITHUB_TOKEN 提交不会触发新的 workflow run，不存在递归；[skip ci] 是双保险。
+      - name: Keepalive（防 60 天无活动被自动禁用）
+        if: always()
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          LAST=$(git log -1 --format=%ct)
+          NOW=$(date -u +%s)
+          DAYS=$(( (NOW - LAST) / 86400 ))
+          echo "距最近一次提交：${DAYS} 天"
+          if [ "$DAYS" -lt 25 ]; then
+            echo "未达 25 天阈值，本次不提交。"
+            exit 0
+          fi
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .keepalive
+          git add .keepalive
+          git commit -m "chore: keepalive 重置活动计时器 [skip ci]"
+          git push

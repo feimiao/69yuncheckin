@@ -116,7 +116,9 @@ def send_message(msg="", BotToken="", ChatID=""):
     # print(msg)
 
     # 如果 Telegram Bot Token 和 Chat ID 都配置了，则发送消息
-    if BotToken != '' and ChatID != '':
+    # 注意用真值判断：未配置 Secrets 时这两个值为 None，而 None != '' 为 True，
+    # 旧写法会去请求 https://api.telegram.org/botNone/sendMessage 并静默失败。
+    if BotToken and ChatID:
         # 构建消息内容
         message_text = f"执行时间: {formatted_time}\n{msg}"
 
@@ -238,14 +240,28 @@ def checkin(account, domain, BotToken, ChatID):
             # print(f'{user}账号签到后的json信息:', checkin_result)
             账号信息 = f"地址: {domain}\n账号: {user}\n密码: <tg-spoiler>{pass_}</tg-spoiler>\n"
 
-            用户信息 = fetch_and_extract_info(domain,checkin_headers)
+            # 抓取失败不应影响签到结果的判定：这里兜住异常并给出缺省文案，
+            # 避免 fetch 返回 None 时下方字符串拼接抛 TypeError 被误判成"签到失败"。
+            try:
+                用户信息 = fetch_and_extract_info(domain, checkin_headers) or "（用户信息获取失败，不影响签到结果）\n"
+            except Exception as info_error:
+                print(f'{user}账号用户信息获取异常（不影响签到结果）:', info_error)
+                用户信息 = "（用户信息获取失败，不影响签到结果）\n"
 
             # 账号信息的展示，注意密码用 <tg-spoiler> 标签隐藏
-            # 根据返回的结果更新签到信息
-            if checkin_result.get('ret') == 1 or checkin_result.get('ret') == 0:
-                签到结果 = f"🎉 签到结果 🎉\n {checkin_result.get('msg', '签到成功' if checkin_result['ret'] == 1 else '签到失败')}"
+            # 根据返回的结果更新签到信息：
+            #   ret == 1 本次签到成功；ret == 0 站点返回"今日已签到"一类幂等结果，同样算成功；
+            #   其余取值一律算失败，交由 __main__ 汇总后以非 0 退出码让 Actions 变红。
+            ret = checkin_result.get('ret')
+            if ret == 1:
+                成功 = True
+                签到结果 = f"🎉 签到结果 🎉\n {checkin_result.get('msg', '签到成功')}"
+            elif ret == 0:
+                成功 = True
+                签到结果 = f"🎉 签到结果 🎉\n {checkin_result.get('msg', '今日已签到')}"
             else:
-                签到结果 = f"🎉 签到结果 🎉\n {checkin_result.get('msg', '签到结果未知')}"
+                成功 = False
+                签到结果 = f"🎉 签到结果 🎉\n {checkin_result.get('msg', '签到结果未知')}（ret={ret}）"
         except Exception as e:
             # 如果出现解析错误，检查是否由于登录失效
             if "登录" in response_text:
@@ -254,14 +270,14 @@ def checkin(account, domain, BotToken, ChatID):
 
         # 发送签到结果到 Telegram
         send_message(账号信息 + 用户信息 + 签到结果, BotToken, ChatID)
-        return 签到结果
+        return 成功, 签到结果
 
     except Exception as error:
         # 捕获异常，打印错误并发送错误信息到 Telegram
         print(f'{user}账号签到异常:', error)
         签到结果 = f"签到过程发生错误: {error}"
         send_message(签到结果, BotToken, ChatID)
-        return 签到结果
+        return False, 签到结果
 
 # 主程序执行逻辑
 if __name__ == "__main__":
@@ -274,8 +290,27 @@ if __name__ == "__main__":
     BotToken = config['BotToken']
     ChatID = config['ChatID']
 
+    accounts = config.get("accounts", [])
+    if not accounts:
+        print("未读取到任何账号：请检查 Secrets 中的 USER1 / PASS1 是否已配置。")
+        raise SystemExit(1)
+
     # 循环执行每个账号的签到任务
-    for account in config.get("accounts", []):
+    失败账号 = []
+    for account in accounts:
         print("----------------------------------签到信息----------------------------------")
-        print(checkin(account, domain, BotToken, ChatID))
+        成功, 结果文本 = checkin(account, domain, BotToken, ChatID)
+        print(结果文本)
         print("---------------------------------------------------------------------------")
+        if not 成功:
+            失败账号.append(account['user'])
+
+    # 汇总退出码：只要有一个账号失败就以非 0 退出。
+    # 旧版把异常全部 print 掉后正常 return，进程退出码恒为 0，
+    # 登录失败、站点改版导致抓不到数据等情况在 Actions 里依然显示绿色，
+    # 故障会被静默吞掉——这正是本次 Ubuntu 26.04 事件之外更隐蔽的一处假绿。
+    if 失败账号:
+        print(f"本次共有 {len(失败账号)}/{len(accounts)} 个账号签到失败。")
+        raise SystemExit(1)
+
+    print(f"全部 {len(accounts)} 个账号处理完成。")
