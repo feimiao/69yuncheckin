@@ -4,7 +4,7 @@ import requests
 import time
 from bs4 import BeautifulSoup
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # 配置文件路径
 config_file_path = "config.json"
@@ -96,14 +96,19 @@ def generate_config():
         'ChatID': chat_id,
         'accounts': accounts
     }
-    print(config)
+    # 安全提示：切勿直接 print(config)，该结构内含账号与明文密码，
+    # 而 GitHub Actions 日志对仓库可见者可读、且在服务端留存。此处只打印脱敏摘要。
+    print(
+        f"[配置] domain={domain} 账号数={len(accounts)} "
+        f"telegram={'已配置' if (bot_token and chat_id) else '未配置'}"
+    )
     return config
 
 
 # 发送消息到 Telegram Bot 的函数，支持按钮
 def send_message(msg="", BotToken="", ChatID=""):
     # 获取当前 UTC 时间，并转换为北京时间（+8小时）
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     beijing_time = now + timedelta(hours=8)
     formatted_time = beijing_time.strftime("%Y-%m-%d %H:%M:%S")
 
